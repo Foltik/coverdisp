@@ -73,7 +73,11 @@ int main(int argc, char** argv) {
 		song = mpd_recv_song(conn);
 
 		if (song == NULL) {
-			printf(RED"Error: "RESET"Failed to query current song\n");
+			// No song playing, continue.
+			if (!mpd_response_finish(conn)) {
+				printf(RED"Error: "RESET"Failed to close response\n");
+				return 1;
+			}
 			continue;
 		}
 		
