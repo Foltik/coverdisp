@@ -49,6 +49,8 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
+	system("touch /tmp/cover.jpg");
+
 	char cmdBuf[128];
 	if (argc == 2) {
 		sprintf(cmdBuf, "feh -x -g %s --reload 0.5 -Z -Y /tmp/cover.jpg &", argv[1]);
