@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -125,7 +126,7 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
     return 0;
 }
 
-void* update(void* unused) {
+void* update(void* quiet) {
     struct mpd_connection* conn;
     conn = mpd_connection_new(NULL, 0, 30000);
 
@@ -146,6 +147,10 @@ void* update(void* unused) {
             // Check if the album has changed
             if (strcmp(lastAlbum, album)) {
                 strcpy(lastAlbum, album);
+
+                if (!*(bool*)quiet)
+                    printf(GREEN"Album Changed: "RESET"%s - '%s'\n", artist, album);
+
                 strcat(path, "/cover.jpg");
                 copy(path, "/tmp/cover.jpg");
             }
@@ -161,29 +166,60 @@ void* display(void* geometry) {
 
     // Call feh
     char cmdBuf[128];
-    sprintf(cmdBuf, "feh -x -Z -Y -R 0.5 -g %s /tmp/cover.jpg", (char*)geometry);
+    if (geometry) {
+        sprintf(cmdBuf, "feh -x -Z -Y -R 0.5 -g %s /tmp/cover.jpg", (char*)geometry);
+    } else {
+        sprintf(cmdBuf, "feh -X -Z -Y -R 0.5 /tmp/cover.jpg");
+    }
     system(cmdBuf);
 }
 
+void printHelp() {
+    fprintf(stderr, "Usage:\n");
+    fprintf(stderr, " coverdisp [options]\n");
+    fprintf(stderr, "\nOptions:\n");
+    fprintf(stderr, "-g=GEOM  Set window geometry to GEOM, eg. 800x800+50+140\n");
+    fprintf(stderr, "-q       Supress the message printed when the album changes\n");
+}
+
 int main(int argc, char** argv) {
-    if (argc != 2) {
-        printf("Usage: coverdisp [geometry]\n");
-        printf("   ex. coverdisp 800x800+50+140\n");
-        exit(EXIT_FAILURE);
+    char* geometry = NULL;
+    bool quiet = false;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "hqg:")) != -1) {
+        switch(opt) {
+            case 'q':
+                quiet = true;
+                break;
+            case 'g':
+                geometry = optarg;
+                break;
+            case 'h':
+                printHelp();
+                return EXIT_FAILURE;
+            case '?':
+                if (optopt == 'g') {
+                    fprintf(stderr, "Option -%c requires an argument, ex. 800x800+50+140\n", optopt);
+                } else {
+                    fprintf(stderr, "\n");
+                    printHelp();
+                }
+                return EXIT_FAILURE;
+            default:
+                error("getopt() failed");
+                return EXIT_FAILURE;
+        }
     }
 
     pthread_t displayThread;
     pthread_t updateThread;
 
-    if (pthread_create(&displayThread, NULL, display, (void*)argv[1])) {
-        printf(RED"Error: "RESET"pthread_create() failed");
-        exit(EXIT_FAILURE);
-    }
+    if (pthread_create(&displayThread, NULL, display, (void*)geometry))
+        return error("pthread_create() failed");
 
-    if (pthread_create(&updateThread, NULL, update, NULL)) {
-        printf(RED"Error: "RESET"pthread_create() failed");
-        exit(EXIT_FAILURE);
-    }
+    if (pthread_create(&updateThread, NULL, update, (void*)&quiet))
+        return error("pthread_create() failed");
 
     pthread_join(displayThread, NULL);
     pthread_kill(updateThread, 0);
