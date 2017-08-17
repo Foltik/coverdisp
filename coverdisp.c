@@ -42,7 +42,7 @@ void getFirstWord(char* word, char* out) {
     if (space) {
         size_t idx = (size_t)(space - word);
         strncpy(out, word, idx);
-        *out[idx] = '\0';
+        out[idx] = '\0';
     } else {
         strcpy(out, word);
     }
@@ -89,7 +89,6 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
 
     while ((entity = mpd_recv_entity(conn)) != NULL) {
         const struct mpd_directory* dir;
-
         if (mpd_entity_get_type(entity) == MPD_ENTITY_TYPE_DIRECTORY) {
             dir = mpd_entity_get_directory(entity);
             const char* path = mpd_directory_get_path(dir);
@@ -100,60 +99,16 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
                 strcat(directory, path);
             }
         }
+        mpd_entity_free(entity);
     }
-}
 
-int getAlbumPath(struct mpd_connection* conn, char* artist, char** path) {
-        char artistPath[128];
-        strcpy(artistPath, lastArtist);
+    if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS)
+        return error(mpd_connection_get_error_message(conn));
 
-        if (!mpd_send_list_meta(conn, artistPath))
-            return error("Failed to query song metadata");
+    if (!mpd_response_finish(conn))
+        return error("Failed to finish response");
 
-        struct mpd_entity* entity;
-
-        while ((entity = mpd_recv_entity(conn)) != NULL) {
-            const struct mpd_song* song;
-            const struct mpd_directory* dir;
-            const struct mpd_playlist* pl;
-
-            if (mpd_entity_get_type(entity) == MPD_ENTITY_TYPE_DIRECTORY) {
-                dir = mpd_entity_get_directory(entity);
-                const char* path = mpd_directory_get_path(dir);
-                char firstWord[32];
-                char* firstSpaceChar = strstr(lastAlbum, " ");
-                if (firstSpaceChar) {
-                    int firstSpace = firstSpaceChar - lastAlbum;
-                    strncpy(firstWord, lastAlbum, firstSpace);
-                    firstWord[firstSpace] = '\0';
-                } else {
-                    strcpy(firstWord, lastAlbum);
-                }
-                if (strstr(path, firstWord)) {
-                    char copyBuf[128];
-                    strcpy(copyBuf, MPD_ROOT_DIRECTORY);
-                    strcat(copyBuf, path);
-                    strcat(copyBuf, "/cover.jpg");
-                    copy(copyBuf, "/tmp/cover.jpg");
-                }
-            }
-
-            mpd_entity_free(entity);
-        }
-
-        if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
-            printf(RED"Error: "RESET"%s\n", mpd_connection_get_error_message(conn));
-            return 1;
-        }
-        if (!mpd_response_finish(conn)) {
-            printf(RED"Error: "RESET"Failed to close response\n");
-            return 1;
-        }
-}
-
-int getMetadata(struct mpd_connection* conn, char** title, char** artist, char** album, char** path) {
-    getSong(conn, title, artist, album);
-    getAlbumPath(conn, *artist, path);
+    return 0;
 }
 
 void* update(void* unused) {
@@ -161,100 +116,30 @@ void* update(void* unused) {
     conn = mpd_connection_new(NULL, 0, 30000);
 
     if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
-        printf(RED"Error: "RESET"Could not establish connection with MPD\n");
-        return;
+        error("Could not establish connection with MPD");
+        return NULL;
     }
 
-    struct mpd_song* song;
-    char lastAlbum[128];
-    char lastArtist[64];
-    lastAlbum[0] = '\0';
+    char lastAlbum[64];
+
+    char title[64];
+    char artist[64];
+    char album[64];
+    char path[128];
 
     do {
-        mpd_command_list_begin(conn, true);
-        mpd_send_current_song(conn);
-        mpd_command_list_end(conn);
+        if (!getSong(conn, title, artist, album, path)) {
+            // Check if the album has changed
+            if (strcmp(lastAlbum, album)) {
+                strcpy(lastAlbum, album);
 
-        song = mpd_recv_song(conn);
-
-        if (song == NULL) {
-            // No song playing, continue.
-            if (!mpd_response_finish(conn)) {
-                printf(RED"Error: "RESET"Failed to close response\n");
-                return 1;
+                strcat(path, "/cover.jpg");
+                copy(path, "/tmp/cover.jpg");
             }
-            continue;
         }
-
-        bool changed = false;
-        const char* tmpAlbum = mpd_song_get_tag(song, MPD_TAG_ALBUM, 0);
-        const char* tmpArtist = mpd_song_get_tag(song, MPD_TAG_ALBUM_ARTIST, 0);
-
-        if (tmpAlbum && tmpArtist && strcmp(lastAlbum, tmpAlbum) != 0) {
-            strcpy(lastAlbum, tmpAlbum);
-            strcpy(lastArtist, tmpArtist);
-            printf(GREEN"Album Changed: "RESET"%s - '%s'\n", tmpArtist, tmpAlbum);
-            changed = true;
-        }
-
-        mpd_song_free(song);
-
-        if (!mpd_response_finish(conn)) {
-            printf(RED"Error: "RESET"Failed to close response\n");
-            return 1;
-        }
-
-        if (!changed) continue;
-
-        char artistPath[128];
-        strcpy(artistPath, lastArtist);
-
-        if (!mpd_send_list_meta(conn, artistPath)) {
-            printf(RED"Error: "RESET"Failed to query song metadata\n");
-            return 1;
-        }
-
-        struct mpd_entity* entity;
-
-        while ((entity = mpd_recv_entity(conn)) != NULL) {
-            const struct mpd_song* song;
-            const struct mpd_directory* dir;
-            const struct mpd_playlist* pl;
-
-            if (mpd_entity_get_type(entity) == MPD_ENTITY_TYPE_DIRECTORY) {
-                dir = mpd_entity_get_directory(entity);
-                const char* path = mpd_directory_get_path(dir);
-                char firstWord[32];
-                char* firstSpaceChar = strstr(lastAlbum, " ");
-                if (firstSpaceChar) {
-                    int firstSpace = firstSpaceChar - lastAlbum;
-                    strncpy(firstWord, lastAlbum, firstSpace);
-                    firstWord[firstSpace] = '\0';
-                } else {
-                    strcpy(firstWord, lastAlbum);
-                }
-                if (strstr(path, firstWord)) {
-                    char copyBuf[128];
-                    strcpy(copyBuf, MPD_ROOT_DIRECTORY);
-                    strcat(copyBuf, path);
-                    strcat(copyBuf, "/cover.jpg");
-                    copy(copyBuf, "/tmp/cover.jpg");
-                }
-            }
-
-            mpd_entity_free(entity);
-        }
-
-        if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS) {
-            printf(RED"Error: "RESET"%s\n", mpd_connection_get_error_message(conn));
-            return 1;
-        }
-        if (!mpd_response_finish(conn)) {
-            printf(RED"Error: "RESET"Failed to close response\n");
-            return 1;
-        }
-
     } while (!usleep(100000));
+
+    mpd_connection_free(conn);
 }
 
 void* display(void* geometry) {
@@ -290,24 +175,5 @@ int main(int argc, char** argv) {
     pthread_join(displayThread, NULL);
     pthread_kill(updateThread, 0);
 
-    //return EXIT_SUCCESS;
-
-    pid_t pid;
-
-        system("touch /tmp/cover.jpg");
-
-        char cmdBuf[128];
-        if (argc == 2) {
-            sprintf(cmdBuf, "feh -x -g %s --reload 0.5 -Z -Y /tmp/cover.jpg &", argv[1]);
-        } else {
-            printf("Usage: coverdisp [geometry]\n");
-            printf("  ex. coverdisp 800x800+50+140\n");
-            return 1;
-        }
-
-        system(cmdBuf);
-
-
-
-        return 0;
+    return EXIT_SUCCESS;
 }
