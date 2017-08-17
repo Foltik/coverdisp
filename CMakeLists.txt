@@ -8,4 +8,4 @@ set(SOURCE_FILES
 
 add_executable(coverdisp ${SOURCE_FILES})
 
-target_link_libraries(coverdisp mpdclient)
+target_link_libraries(coverdisp mpdclient pthread)
