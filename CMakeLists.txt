@@ -8,4 +8,6 @@ set(SOURCE_FILES
 
 add_executable(coverdisp ${SOURCE_FILES})
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3")
+
 target_link_libraries(coverdisp mpdclient pthread)

@@ -79,6 +79,9 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
 
     mpd_song_free(song);
 
+    if (mpd_connection_get_error(conn) != MPD_ERROR_SUCCESS)
+        return error(mpd_connection_get_error_message(conn));
+
     if (!mpd_response_finish(conn))
         return error("Failed to close response.");
 
