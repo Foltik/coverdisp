@@ -69,12 +69,23 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
     const char* tmpArtist = mpd_song_get_tag(song, MPD_TAG_ALBUM_ARTIST, 0);
     const char* tmpAlbum = mpd_song_get_tag(song, MPD_TAG_ALBUM, 0);
 
-    if (tmpTitle && tmpArtist && tmpAlbum) {
+    if (tmpTitle && tmpArtist) {
         strcpy(title, tmpTitle);
         strcpy(artist, tmpArtist);
-        strcpy(album, tmpAlbum);
     } else {
-        return error("Failed to get song tags");
+        if (!mpd_response_finish(conn))
+            return error("Failed to close response");
+        return error("Failed to get song title/artist");
+    }
+
+    bool hasAlbum;
+
+    if (tmpAlbum) {
+        strcpy(album, tmpAlbum);
+        hasAlbum = true;
+    } else {
+        strcpy(album, tmpArtist);
+        hasAlbum = false;
     }
 
     mpd_song_free(song);
@@ -85,7 +96,7 @@ int getSong(struct mpd_connection* conn, char* title, char* artist, char* album,
     if (!mpd_response_finish(conn))
         return error("Failed to close response.");
 
-    if (!mpd_send_list_meta(conn, artist))
+    if (!mpd_send_list_meta(conn, hasAlbum ? artist : "/"))
         return error("Failed to query metadata");
 
     struct mpd_entity* entity;
@@ -135,7 +146,6 @@ void* update(void* unused) {
             // Check if the album has changed
             if (strcmp(lastAlbum, album)) {
                 strcpy(lastAlbum, album);
-
                 strcat(path, "/cover.jpg");
                 copy(path, "/tmp/cover.jpg");
             }
